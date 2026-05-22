@@ -8,7 +8,6 @@ out
 
 # Bun
 .bun
-bun.lock
 
 # Environment variables
 .env
