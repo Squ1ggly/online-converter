@@ -68,14 +68,14 @@ export async function convertVideo(
       PATH: process.env.PATH,
       HOME: JOBS_DIR,
     },
+    stdin: "ignore",
     stdout: "ignore",
     stderr: "pipe",
     cwd: JOBS_DIR,
   });
 
-  // Drain stderr concurrently — FFmpeg writes heavy progress output and the pipe
-  // buffer will fill up and deadlock if nothing reads it while we wait for exit.
-  const stderrPromise = new Response(proc.stderr).text();
+  // Drain stderr concurrently to prevent pipe buffer from filling up and deadlocking.
+  const stderrPromise = new Response(proc.stderr).text().catch(() => "");
 
   let timedOut = false;
   const killTimer = setTimeout(() => {
@@ -84,8 +84,12 @@ export async function convertVideo(
     proc.kill();
   }, 10 * 60 * 1000);
 
-  const [exitCode, stderr] = await Promise.all([proc.exited, stderrPromise]);
+  // Wait for the process to exit, then collect stderr with a short timeout.
+  // Using Promise.all on proc.exited + stderrPromise can hang if Bun's ReadableStream
+  // doesn't emit EOF promptly after process exit.
+  const exitCode = await proc.exited;
   clearTimeout(killTimer);
+  const stderr = await Promise.race([stderrPromise, new Promise<string>(r => setTimeout(() => r(""), 500))]);
 
   if (exitCode !== 0) {
     const errorLine = timedOut

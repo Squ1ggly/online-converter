@@ -72,12 +72,14 @@ export async function convertImage(
       MAGICK_TIME_LIMIT: "60",
       MAGICK_THREAD_LIMIT: "2",
     },
+    stdin: "ignore",
     stdout: "ignore",
     stderr: "pipe",
     cwd: JOBS_DIR,
   });
 
-  const stderrPromise = new Response(proc.stderr).text();
+  // Drain stderr concurrently to prevent pipe buffer from filling up and deadlocking.
+  const stderrPromise = new Response(proc.stderr).text().catch(() => "");
 
   let timedOut = false;
   const killTimer = setTimeout(() => {
@@ -86,8 +88,12 @@ export async function convertImage(
     proc.kill();
   }, 65_000);
 
-  const [exitCode, stderr] = await Promise.all([proc.exited, stderrPromise]);
+  // Wait for the process to exit, then collect stderr with a short timeout.
+  // Using Promise.all on proc.exited + stderrPromise can hang if Bun's ReadableStream
+  // doesn't emit EOF promptly after process exit.
+  const exitCode = await proc.exited;
   clearTimeout(killTimer);
+  const stderr = await Promise.race([stderrPromise, new Promise<string>(r => setTimeout(() => r(""), 500))]);
 
   if (exitCode !== 0) {
     const msg = timedOut ? "ImageMagick timed out" : (stderr.trim() || "ImageMagick conversion failed");
