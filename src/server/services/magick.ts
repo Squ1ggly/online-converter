@@ -1,6 +1,7 @@
 import path from "path";
 import fs from "fs";
 import type { ConversionOptions, ImageFormat } from "../../shared/types";
+import { logger } from "./logger";
 
 export const JOBS_DIR = "/tmp/online-converter";
 
@@ -34,7 +35,9 @@ export function ensureJobDirs(jobId: string): { inputDir: string; outputDir: str
 export async function convertImage(
   inputPath: string,
   outputPath: string,
-  options: ConversionOptions = {}
+  options: ConversionOptions = {},
+  jobId?: string,
+  fileId?: string,
 ): Promise<void> {
   assertSafePath(inputPath);
   assertSafePath(outputPath);
@@ -53,6 +56,9 @@ export async function convertImage(
   }
 
   args.push(outputPath);
+
+  const format = path.extname(outputPath).slice(1);
+  logger.info("magick start", { jobId, fileId, format, quality: options.quality, resize: options.resize });
 
   const proc = Bun.spawn({
     cmd: ["convert", ...args],
@@ -73,11 +79,21 @@ export async function convertImage(
 
   const stderrPromise = new Response(proc.stderr).text();
 
-  const killTimer = setTimeout(() => proc.kill(), 65_000);
+  let timedOut = false;
+  const killTimer = setTimeout(() => {
+    timedOut = true;
+    logger.warn("magick timeout — killing process", { jobId, fileId });
+    proc.kill();
+  }, 65_000);
+
   const [exitCode, stderr] = await Promise.all([proc.exited, stderrPromise]);
   clearTimeout(killTimer);
 
   if (exitCode !== 0) {
-    throw new Error(stderr.trim() || "ImageMagick conversion failed");
+    const msg = timedOut ? "ImageMagick timed out" : (stderr.trim() || "ImageMagick conversion failed");
+    logger.error("magick failed", { jobId, fileId, exitCode, err: msg });
+    throw new Error(msg);
   }
+
+  logger.info("magick done", { jobId, fileId });
 }

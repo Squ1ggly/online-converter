@@ -3,6 +3,7 @@ import index from "../client/index.html";
 import { createJob, getJob, downloadFile, downloadAll, deleteJob } from "./routes/jobs";
 import { termsPage } from "./routes/terms";
 import { startCleanup } from "./services/cleanup";
+import { logger } from "./services/logger";
 
 startCleanup();
 
@@ -48,4 +49,4 @@ const server = serve({
   },
 });
 
-console.log(`🚀 Server running at ${server.url}`);
+logger.info(`server started`, { url: server.url.toString(), env: process.env.NODE_ENV ?? "development" });

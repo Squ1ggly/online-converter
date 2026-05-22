@@ -6,6 +6,7 @@ import { store } from "../services/store";
 import { assertFormat, convertImage, ensureJobDirs, JOBS_DIR } from "../services/magick";
 import { assertVideoFormat, convertVideo } from "../services/ffmpeg";
 import { getOrCreateSession, parseSession } from "../services/session";
+import { logger } from "../services/logger";
 
 export async function createJob(req: Request): Promise<Response> {
   const { sessionId, cookie } = getOrCreateSession(req);
@@ -14,6 +15,7 @@ export async function createJob(req: Request): Promise<Response> {
   try {
     form = await req.formData();
   } catch {
+    logger.warn("createJob bad form data", { sessionId: sessionId.slice(0, 8) });
     return Response.json({ error: "Invalid form data" }, { status: 400 });
   }
 
@@ -22,6 +24,7 @@ export async function createJob(req: Request): Promise<Response> {
   const targetFormat = (form.get("targetFormat") as string)?.toLowerCase();
 
   if (!files.length) {
+    logger.warn("createJob no files", { sessionId: sessionId.slice(0, 8) });
     return Response.json({ error: "No files provided" }, { status: 400 });
   }
 
@@ -32,6 +35,7 @@ export async function createJob(req: Request): Promise<Response> {
       assertFormat(targetFormat);
     }
   } catch {
+    logger.warn("createJob invalid format", { sessionId: sessionId.slice(0, 8), format: targetFormat });
     return Response.json({ error: "Invalid target format" }, { status: 400 });
   }
 
@@ -84,9 +88,18 @@ export async function createJob(req: Request): Promise<Response> {
   };
 
   store.set(job);
+  logger.info("job created", {
+    jobId,
+    sessionId: sessionId.slice(0, 8),
+    type,
+    format: targetFormat,
+    files: fileJobs.length,
+  });
 
   // Process asynchronously - don't await
-  processJob(job, inputDir, outputDir).catch(console.error);
+  processJob(job, inputDir, outputDir).catch((err) => {
+    logger.error("job processing uncaught error", { jobId, err: String(err) });
+  });
 
   const headers = new Headers({ "Content-Type": "application/json" });
   if (cookie) headers.set("Set-Cookie", cookie);
@@ -99,10 +112,10 @@ async function processJob(
   outputDir: string
 ): Promise<void> {
   let anyFailed = false;
+  const start = Date.now();
 
   const convert = job.type === "video" ? convertVideo : convertImage;
 
-  // Images process in parallel; videos sequentially to avoid resource contention
   const processor = async (fileJob: FileJob) => {
     const ext = fileJob.originalName.split(".").pop()?.toLowerCase() ?? "bin";
     const inputPath = path.join(inputDir, `${fileJob.id}.${ext}`);
@@ -111,13 +124,27 @@ async function processJob(
     fileJob.status = "processing";
     store.set(job);
 
+    const fileStart = Date.now();
     try {
-      await convert(inputPath, outputPath, job.options);
+      await convert(inputPath, outputPath, job.options, job.id, fileJob.id);
       fileJob.status = "completed";
+      logger.info("file converted", {
+        jobId: job.id,
+        fileId: fileJob.id,
+        name: fileJob.originalName,
+        ms: Date.now() - fileStart,
+      });
     } catch (err) {
       fileJob.status = "failed";
       fileJob.error = err instanceof Error ? err.message : "Conversion failed";
       anyFailed = true;
+      logger.error("file conversion failed", {
+        jobId: job.id,
+        fileId: fileJob.id,
+        name: fileJob.originalName,
+        ms: Date.now() - fileStart,
+        err: fileJob.error,
+      });
     }
 
     store.set(job);
@@ -132,28 +159,41 @@ async function processJob(
   job.status = anyFailed ? "failed" : "completed";
   job.completedAt = Date.now();
   store.set(job);
+
+  const completed = job.files.filter((f) => f.status === "completed").length;
+  const failed = job.files.filter((f) => f.status === "failed").length;
+  logger.info("job done", { jobId: job.id, status: job.status, completed, failed, ms: Date.now() - start });
 }
 
 export function getJob(jobId: string, req: Request): Response {
   const sessionId = parseSession(req);
   const job = store.get(jobId);
-  if (!job || job.sessionId !== sessionId) return Response.json({ error: "Not found" }, { status: 404 });
+  if (!job || job.sessionId !== sessionId) {
+    if (job) logger.warn("getJob session mismatch", { jobId });
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
   return Response.json(job);
 }
 
 export function downloadFile(jobId: string, fileId: string, req: Request): Response {
   const sessionId = parseSession(req);
   const job = store.get(jobId);
-  if (!job || job.sessionId !== sessionId) return Response.json({ error: "Not found" }, { status: 404 });
+  if (!job || job.sessionId !== sessionId) {
+    if (job) logger.warn("downloadFile session mismatch", { jobId });
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
 
   const fileJob = job.files.find((f) => f.id === fileId);
   if (!fileJob || fileJob.status !== "completed") {
+    logger.warn("downloadFile not ready", { jobId, fileId });
     return Response.json({ error: "File not ready" }, { status: 404 });
   }
 
   const filePath = path.join(JOBS_DIR, jobId, "output", `${fileId}.${job.targetFormat}`);
   const file = Bun.file(filePath);
   const stem = fileJob.originalName.replace(/\.[^/.]+$/, "");
+
+  logger.info("file downloaded", { jobId, fileId, name: fileJob.originalName });
 
   return new Response(file, {
     headers: {
@@ -166,10 +206,16 @@ export function downloadFile(jobId: string, fileId: string, req: Request): Respo
 export async function downloadAll(jobId: string, req: Request): Promise<Response> {
   const sessionId = parseSession(req);
   const job = store.get(jobId);
-  if (!job || job.sessionId !== sessionId) return Response.json({ error: "Not found" }, { status: 404 });
+  if (!job || job.sessionId !== sessionId) {
+    if (job) logger.warn("downloadAll session mismatch", { jobId });
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
 
   const completed = job.files.filter((f) => f.status === "completed");
-  if (!completed.length) return Response.json({ error: "No completed files" }, { status: 404 });
+  if (!completed.length) {
+    logger.warn("downloadAll no completed files", { jobId });
+    return Response.json({ error: "No completed files" }, { status: 404 });
+  }
 
   const entries: Record<string, Uint8Array> = {};
 
@@ -180,6 +226,8 @@ export async function downloadAll(jobId: string, req: Request): Promise<Response
   }
 
   const zipped = zipSync(entries, { level: 6 });
+
+  logger.info("zip downloaded", { jobId, files: completed.length, bytes: zipped.byteLength });
 
   return new Response(zipped, {
     headers: {
@@ -192,10 +240,16 @@ export async function downloadAll(jobId: string, req: Request): Promise<Response
 export function deleteJob(jobId: string, req: Request): Response {
   const sessionId = parseSession(req);
   const job = store.get(jobId);
-  if (!job || job.sessionId !== sessionId) return Response.json({ error: "Not found" }, { status: 404 });
+  if (!job || job.sessionId !== sessionId) {
+    if (job) logger.warn("deleteJob session mismatch", { jobId });
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
 
-  fs.rm(path.join(JOBS_DIR, jobId), { recursive: true, force: true }, () => {});
+  fs.rm(path.join(JOBS_DIR, jobId), { recursive: true, force: true }, (err) => {
+    if (err) logger.warn("deleteJob rm failed", { jobId, err: err.message });
+  });
   store.delete(jobId);
 
+  logger.info("job deleted", { jobId });
   return new Response(null, { status: 204 });
 }
