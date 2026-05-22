@@ -1,0 +1,33 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+out
+*.tgz
+
+# Bun
+.bun
+bun.lock
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+logs
+*.log
+
+# TypeScript
+*.tsbuildinfo
+
+# Temp / runtime files
+/tmp
+
+# macOS
+.DS_Store
+
+# Editor
+.idea
+.zed
