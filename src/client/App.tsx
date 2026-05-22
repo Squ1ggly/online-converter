@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Header } from "./components/Header";
 import { DropZone } from "./components/DropZone";
@@ -35,17 +35,22 @@ export function App() {
   const [uploadLabel, setUploadLabel] = useState("Uploading…");
   const [error, setError] = useState<string | null>(null);
 
-  // Poll for updates while job is running
+  // Live updates via WebSocket while job is running
   useEffect(() => {
     if (!job || job.status === "completed" || job.status === "failed") return;
-    const id = setInterval(async () => {
-      const res = await fetch(`/api/jobs/${job.id}`);
-      if (res.ok) setJob(await res.json());
-    }, 1000);
-    return () => clearInterval(id);
+
+    const url = new URL(`/api/jobs/${job.id}/ws`, window.location.href);
+    url.protocol = url.protocol.replace("http", "ws");
+    const ws = new WebSocket(url.toString());
+
+    ws.onmessage = (e) => {
+      try { setJob(JSON.parse(e.data as string)); } catch {}
+    };
+
+    return () => ws.close();
   }, [job?.id, job?.status]);
 
-  const handleConvert = useCallback(async (type: "image" | "video") => {
+  const handleConvert = async (type: "image" | "video") => {
     const files = type === "image" ? imageFiles : videoFiles;
     if (!files.length) return;
 
@@ -94,7 +99,7 @@ export function App() {
       setUploading(false);
       setUploadLabel("Uploading…");
     }
-  }, [imageFiles, videoFiles, imageFormat, videoFormat, imageOptions, videoOptions]);
+  };
 
   return (
     <div className="app">

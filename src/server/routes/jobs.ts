@@ -7,7 +7,13 @@ import { assertFormat, convertImage, ensureJobDirs, JOBS_DIR } from "../services
 import { assertVideoFormat, convertVideo } from "../services/ffmpeg";
 import { getOrCreateSession, parseSession } from "../services/session";
 import { uploadStore } from "../services/uploadStore";
+import { publishJob } from "../services/pubsub";
 import { logger } from "../services/logger";
+
+function update(job: ConversionJob): void {
+  store.set(job);
+  publishJob(job.id, JSON.stringify(job));
+}
 
 export async function createJob(req: Request): Promise<Response> {
   const { sessionId, cookie } = getOrCreateSession(req);
@@ -123,20 +129,27 @@ async function processJob(
   let anyFailed = false;
   const start = Date.now();
 
-  const convert = job.type === "video" ? convertVideo : convertImage;
-
   const processor = async (fileJob: FileJob) => {
     const ext = fileJob.originalName.split(".").pop()?.toLowerCase() ?? "bin";
     const inputPath = path.join(inputDir, `${fileJob.id}.${ext}`);
     const outputPath = path.join(outputDir, `${fileJob.id}.${job.targetFormat}`);
 
     fileJob.status = "processing";
-    store.set(job);
+    fileJob.progress = 0;
+    update(job);
 
     const fileStart = Date.now();
     try {
-      await convert(inputPath, outputPath, job.options, job.id, fileJob.id);
+      if (job.type === "video") {
+        await convertVideo(inputPath, outputPath, job.options, (pct) => {
+          fileJob.progress = pct;
+          update(job);
+        }, job.id, fileJob.id);
+      } else {
+        await convertImage(inputPath, outputPath, job.options, job.id, fileJob.id);
+      }
       fileJob.status = "completed";
+      fileJob.progress = 100;
       logger.info("file converted", {
         jobId: job.id,
         fileId: fileJob.id,
@@ -156,7 +169,7 @@ async function processJob(
       });
     }
 
-    store.set(job);
+    update(job);
   };
 
   try {
@@ -171,7 +184,7 @@ async function processJob(
   } finally {
     job.status = anyFailed ? "failed" : "completed";
     job.completedAt = Date.now();
-    store.set(job);
+    update(job);
 
     const completed = job.files.filter((f) => f.status === "completed").length;
     const failed = job.files.filter((f) => f.status === "failed").length;

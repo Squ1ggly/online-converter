@@ -7,11 +7,19 @@ interface Props {
 }
 
 export function JobCard({ job, onDismiss }: Props) {
-  const done = job.files.filter((f) => f.status === "completed").length;
+  const done   = job.files.filter((f) => f.status === "completed").length;
   const failed = job.files.filter((f) => f.status === "failed").length;
-  const total = job.files.length;
-  const pct = Math.round(((done + failed) / total) * 100);
+  const total  = job.files.length;
   const isRunning = job.status === "processing" || job.status === "pending";
+
+  // Overall progress: completed/failed files count as 100%, in-progress files contribute
+  // their per-file percentage (only set for video). Images jump 0→100 on completion.
+  const pct = total === 0 ? 0 : Math.round(
+    job.files.reduce((sum, f) => {
+      if (f.status === "completed" || f.status === "failed") return sum + 100;
+      return sum + (f.progress ?? 0);
+    }, 0) / total
+  );
 
   return (
     <div className={`job-card job-card--${job.status}`}>
@@ -54,11 +62,7 @@ export function JobCard({ job, onDismiss }: Props) {
             <span className="job-file-name">{f.originalName}</span>
             <span className="job-file-action">
               {f.status === "completed" && (
-                <a
-                  className="job-file-dl"
-                  href={`/api/jobs/${job.id}/files/${f.id}`}
-                  download
-                >
+                <a className="job-file-dl" href={`/api/jobs/${job.id}/files/${f.id}`} download>
                   Download
                 </a>
               )}
@@ -66,7 +70,11 @@ export function JobCard({ job, onDismiss }: Props) {
                 <span className="job-file-err" title={f.error}>Failed</span>
               )}
               {(f.status === "pending" || f.status === "processing") && (
-                <span className="job-file-spin">Converting…</span>
+                <span className="job-file-spin">
+                  {f.status === "processing" && (f.progress ?? 0) > 0
+                    ? `${f.progress}%`
+                    : "Converting…"}
+                </span>
               )}
             </span>
           </li>

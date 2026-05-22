@@ -14,6 +14,7 @@ export interface FileJob {
   size: number;
   status: JobStatus;
   error?: string;
+  progress?: number; // 0–100, only present during video processing
 }
 
 export interface ConversionJob {
