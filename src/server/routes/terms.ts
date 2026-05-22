@@ -3,7 +3,7 @@ const HTML = `<!doctype html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Terms &amp; Conditions — ImageConvert</title>
+  <title>Terms &amp; Conditions — Online Converter</title>
   <style>
     :root {
       --bg: #0c0c14; --surface: #12121c; --border: #2c2c48;
@@ -35,7 +35,7 @@ const HTML = `<!doctype html>
   <div class="page">
     <header>
       <a class="brand" href="/">
-        <span class="brand-name">ImageConvert</span>
+        <span class="brand-name">Online Converter</span>
       </a>
       <a class="back" href="/">← Back to converter</a>
     </header>
@@ -48,10 +48,10 @@ const HTML = `<!doctype html>
     </div>
 
     <h2>1. Acceptance of Terms</h2>
-    <p>By using ImageConvert ("the Service") you agree to these terms. If you do not agree, do not use the Service.</p>
+    <p>By using Online Converter ("the Service") you agree to these terms. If you do not agree, do not use the Service.</p>
 
     <h2>2. Description of Service</h2>
-    <p>ImageConvert is a free, unauthenticated file conversion tool that converts images and video between common formats using open-source software (ImageMagick and FFmpeg) running on the server.</p>
+    <p>Online Converter is a free, unauthenticated file conversion tool that converts images and video between common formats using open-source software (ImageMagick and FFmpeg) running on the server.</p>
 
     <h2>3. File Storage &amp; Retention</h2>
     <p>Uploaded files and converted outputs are stored temporarily on the server's local disk solely to facilitate your download. Files are automatically deleted within 30 minutes of upload, or within 2 minutes of all converted files being downloaded — whichever comes first. We do not back up, archive, or retain your files beyond this window.</p>
@@ -73,7 +73,7 @@ const HTML = `<!doctype html>
     <p>We may update these terms at any time. Continued use of the Service after changes constitutes acceptance of the revised terms.</p>
 
     <footer>
-      <p>ImageConvert — free, open-source image &amp; video conversion.</p>
+      <p>Online Converter — free, open-source image &amp; video conversion.</p>
     </footer>
   </div>
 </body>
