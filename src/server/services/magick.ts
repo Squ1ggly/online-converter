@@ -55,7 +55,10 @@ export async function convertImage(
     args.push("-resize", options.resize);
   }
 
-  args.push(outputPath);
+  // -flatten merges all frames (animated GIFs, multi-layer PDFs, etc.) into a single
+  // output file, preventing ImageMagick from writing numbered files (name-0.jpg, name-1.jpg)
+  // that would break the expected single-file output path.
+  args.push("-flatten", outputPath);
 
   const format = path.extname(outputPath).slice(1);
   logger.info("magick start", { jobId, fileId, format, quality: options.quality, resize: options.resize });
