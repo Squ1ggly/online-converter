@@ -59,14 +59,15 @@ export async function convertVideo(
     cwd: JOBS_DIR,
   });
 
-  // 10 minute timeout for video conversion
+  // Drain stderr concurrently — FFmpeg writes heavy progress output and the pipe
+  // buffer will fill up and deadlock if nothing reads it while we wait for exit.
+  const stderrPromise = new Response(proc.stderr).text();
+
   const killTimer = setTimeout(() => proc.kill(), 10 * 60 * 1000);
-  const exitCode = await proc.exited;
+  const [exitCode, stderr] = await Promise.all([proc.exited, stderrPromise]);
   clearTimeout(killTimer);
 
   if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    // FFmpeg stderr is very verbose — extract just the last error line
     const errorLine = stderr.split("\n").filter((l) => l.includes("Error") || l.includes("Invalid") || l.includes("No such")).pop()
       ?? stderr.split("\n").filter(Boolean).slice(-2).join(" ")
       ?? "FFmpeg conversion failed";

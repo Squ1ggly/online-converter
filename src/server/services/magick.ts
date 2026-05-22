@@ -71,12 +71,13 @@ export async function convertImage(
     cwd: JOBS_DIR,
   });
 
+  const stderrPromise = new Response(proc.stderr).text();
+
   const killTimer = setTimeout(() => proc.kill(), 65_000);
-  const exitCode = await proc.exited;
+  const [exitCode, stderr] = await Promise.all([proc.exited, stderrPromise]);
   clearTimeout(killTimer);
 
   if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
     throw new Error(stderr.trim() || "ImageMagick conversion failed");
   }
 }
