@@ -97,9 +97,7 @@ export async function createJob(req: Request): Promise<Response> {
   });
 
   // Process asynchronously - don't await
-  processJob(job, inputDir, outputDir).catch((err) => {
-    logger.error("job processing uncaught error", { jobId, err: String(err) });
-  });
+  void processJob(job, inputDir, outputDir);
 
   const headers = new Headers({ "Content-Type": "application/json" });
   if (cookie) headers.set("Set-Cookie", cookie);
@@ -150,19 +148,25 @@ async function processJob(
     store.set(job);
   };
 
-  if (job.type === "video") {
-    for (const fileJob of job.files) await processor(fileJob);
-  } else {
-    await Promise.all(job.files.map(processor));
+  try {
+    if (job.type === "video") {
+      for (const fileJob of job.files) await processor(fileJob);
+    } else {
+      await Promise.all(job.files.map(processor));
+    }
+  } catch (err) {
+    // Unexpected error outside individual file processors — mark whole job failed
+    logger.error("job processing uncaught error", { jobId: job.id, err: String(err) });
+    anyFailed = true;
+  } finally {
+    job.status = anyFailed ? "failed" : "completed";
+    job.completedAt = Date.now();
+    store.set(job);
+
+    const completed = job.files.filter((f) => f.status === "completed").length;
+    const failed = job.files.filter((f) => f.status === "failed").length;
+    logger.info("job done", { jobId: job.id, status: job.status, completed, failed, ms: Date.now() - start });
   }
-
-  job.status = anyFailed ? "failed" : "completed";
-  job.completedAt = Date.now();
-  store.set(job);
-
-  const completed = job.files.filter((f) => f.status === "completed").length;
-  const failed = job.files.filter((f) => f.status === "failed").length;
-  logger.info("job done", { jobId: job.id, status: job.status, completed, failed, ms: Date.now() - start });
 }
 
 export function getJob(jobId: string, req: Request): Response {
