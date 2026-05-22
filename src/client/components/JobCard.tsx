@@ -59,7 +59,9 @@ export function JobCard({ job, onDismiss }: Props) {
         {job.files.map((f) => (
           <li key={f.id} className={`job-file job-file--${f.status}`}>
             <span className="job-file-dot" />
-            <span className="job-file-name">{f.originalName}</span>
+            <span className="job-file-name">
+              {f.originalName.replace(/\.[^/.]+$/, `.${job.targetFormat}`)}
+            </span>
             <span className="job-file-action">
               {f.status === "completed" && (
                 <a className="job-file-dl" href={`/api/jobs/${job.id}/files/${f.id}`} download>
