@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { store } from "./store";
+import { uploadStore } from "./uploadStore";
 import { JOBS_DIR } from "./magick";
 import { logger } from "./logger";
 
@@ -16,6 +17,7 @@ function removeJob(jobId: string) {
 function tick() {
   const now = Date.now();
   let removed = 0;
+
   for (const job of store.all()) {
     const ageMs = now - job.createdAt;
     if (ageMs > MAX_AGE_MS) {
@@ -24,6 +26,17 @@ function tick() {
       removed++;
     }
   }
+
+  for (const upload of uploadStore.all()) {
+    const ageMs = now - upload.createdAt;
+    if (ageMs > MAX_AGE_MS) {
+      logger.info("cleanup removing abandoned upload", { uploadId: upload.uploadId, ageSec: Math.round(ageMs / 1000) });
+      fs.rm(path.join(JOBS_DIR, "uploads", upload.uploadId), { recursive: true, force: true }, () => {});
+      uploadStore.delete(upload.uploadId);
+      removed++;
+    }
+  }
+
   if (removed > 0) {
     logger.info("cleanup tick done", { removed });
   }

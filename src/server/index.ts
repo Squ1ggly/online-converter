@@ -1,6 +1,7 @@
 import { serve } from "bun";
 import index from "../client/index.html";
 import { createJob, getJob, downloadFile, downloadAll, deleteJob } from "./routes/jobs";
+import { receiveChunk } from "./routes/upload";
 import { termsPage } from "./routes/terms";
 import { startCleanup } from "./services/cleanup";
 import { logger } from "./services/logger";
@@ -12,6 +13,10 @@ const server = serve({
     "/*": index,
 
     "/terms": { GET: termsPage },
+
+    "/api/upload": {
+      POST: receiveChunk,
+    },
 
     "/api/jobs": {
       POST: createJob,

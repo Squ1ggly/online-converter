@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Header } from "./components/Header";
 import { DropZone } from "./components/DropZone";
@@ -14,6 +14,7 @@ import type {
   ImageFormat,
   VideoFormat,
 } from "../shared/types";
+import { uploadFile } from "./utils/chunkedUpload";
 
 export function App() {
   // Image tab state
@@ -31,6 +32,7 @@ export function App() {
   // Shared state
   const [job, setJob] = useState<ConversionJob | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadLabel, setUploadLabel] = useState("Uploading…");
   const [error, setError] = useState<string | null>(null);
 
   // Poll for updates while job is running
@@ -43,7 +45,7 @@ export function App() {
     return () => clearInterval(id);
   }, [job?.id, job?.status]);
 
-  const handleConvert = async (type: "image" | "video") => {
+  const handleConvert = useCallback(async (type: "image" | "video") => {
     const files = type === "image" ? imageFiles : videoFiles;
     if (!files.length) return;
 
@@ -51,25 +53,38 @@ export function App() {
     setError(null);
     setJob(null);
 
-    const form = new FormData();
-    files.forEach((f) => form.append("files", f));
-    form.append("type", type);
-
-    if (type === "image") {
-      form.append("targetFormat", imageFormat);
-      if (imageOptions.quality !== undefined) form.append("quality", String(imageOptions.quality));
-      if (imageOptions.resize) form.append("resize", imageOptions.resize);
-    } else {
-      form.append("targetFormat", videoFormat);
-      if (videoOptions.videoBitrate) form.append("videoBitrate", videoOptions.videoBitrate);
-      if (videoOptions.audioBitrate) form.append("audioBitrate", videoOptions.audioBitrate);
-      if (videoOptions.resolution) form.append("resolution", videoOptions.resolution);
-      if (videoOptions.fps) form.append("fps", String(videoOptions.fps));
-    }
-
     try {
+      // Upload files in chunks (handles files larger than Cloudflare's 100 MB limit)
+      const uploadIds: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]!;
+        setUploadLabel(
+          files.length > 1
+            ? `Uploading ${i + 1} of ${files.length}…`
+            : "Uploading…"
+        );
+        const id = await uploadFile(file);
+        uploadIds.push(id);
+      }
+
+      const form = new FormData();
+      form.append("type", type);
+      uploadIds.forEach((id) => form.append("uploadIds", id));
+
+      if (type === "image") {
+        form.append("targetFormat", imageFormat);
+        if (imageOptions.quality !== undefined) form.append("quality", String(imageOptions.quality));
+        if (imageOptions.resize) form.append("resize", imageOptions.resize);
+      } else {
+        form.append("targetFormat", videoFormat);
+        if (videoOptions.videoBitrate) form.append("videoBitrate", videoOptions.videoBitrate);
+        if (videoOptions.audioBitrate) form.append("audioBitrate", videoOptions.audioBitrate);
+        if (videoOptions.resolution) form.append("resolution", videoOptions.resolution);
+        if (videoOptions.fps) form.append("fps", String(videoOptions.fps));
+      }
+
       const res = await fetch("/api/jobs", { method: "POST", body: form });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Upload failed");
+      if (!res.ok) throw new Error((await res.json()).error ?? "Job creation failed");
       const { jobId } = await res.json();
       const jobRes = await fetch(`/api/jobs/${jobId}`);
       setJob(await jobRes.json());
@@ -77,8 +92,9 @@ export function App() {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setUploading(false);
+      setUploadLabel("Uploading…");
     }
-  };
+  }, [imageFiles, videoFiles, imageFormat, videoFormat, imageOptions, videoOptions]);
 
   return (
     <div className="app">
@@ -130,7 +146,7 @@ export function App() {
                 disabled={!imageFiles.length || uploading}
               >
                 {uploading
-                  ? "Uploading…"
+                  ? uploadLabel
                   : imageFiles.length
                   ? `Convert ${imageFiles.length} image${imageFiles.length > 1 ? "s" : ""} → ${imageFormat.toUpperCase()}`
                   : "Select images to convert"}
@@ -165,7 +181,7 @@ export function App() {
                 disabled={!videoFiles.length || uploading}
               >
                 {uploading
-                  ? "Uploading…"
+                  ? uploadLabel
                   : videoFiles.length
                   ? `Convert ${videoFiles.length} video${videoFiles.length > 1 ? "s" : ""} → ${videoFormat.toUpperCase()}`
                   : "Select videos to convert"}

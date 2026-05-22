@@ -6,6 +6,7 @@ import { store } from "../services/store";
 import { assertFormat, convertImage, ensureJobDirs, JOBS_DIR } from "../services/magick";
 import { assertVideoFormat, convertVideo } from "../services/ffmpeg";
 import { getOrCreateSession, parseSession } from "../services/session";
+import { uploadStore } from "../services/uploadStore";
 import { logger } from "../services/logger";
 
 export async function createJob(req: Request): Promise<Response> {
@@ -19,11 +20,11 @@ export async function createJob(req: Request): Promise<Response> {
     return Response.json({ error: "Invalid form data" }, { status: 400 });
   }
 
-  const files = form.getAll("files") as File[];
+  const uploadIds = form.getAll("uploadIds") as string[];
   const type = (form.get("type") as string) === "video" ? "video" : "image";
   const targetFormat = (form.get("targetFormat") as string)?.toLowerCase();
 
-  if (!files.length) {
+  if (!uploadIds.length) {
     logger.warn("createJob no files", { sessionId: sessionId.slice(0, 8) });
     return Response.json({ error: "No files provided" }, { status: 400 });
   }
@@ -39,22 +40,33 @@ export async function createJob(req: Request): Promise<Response> {
     return Response.json({ error: "Invalid target format" }, { status: 400 });
   }
 
+  // Validate all uploads belong to this session and are fully assembled
+  const uploads = [];
+  for (const uploadId of uploadIds) {
+    const upload = uploadStore.get(uploadId);
+    if (!upload || upload.sessionId !== sessionId || !upload.assembledPath) {
+      logger.warn("createJob invalid upload", { uploadId, sessionId: sessionId.slice(0, 8) });
+      return Response.json({ error: "Invalid or incomplete upload" }, { status: 400 });
+    }
+    uploads.push(upload);
+  }
+
   const jobId = crypto.randomUUID();
   const { inputDir, outputDir } = ensureJobDirs(jobId);
-
   const fileJobs: FileJob[] = [];
 
-  for (const file of files) {
+  for (const upload of uploads) {
     const fileId = crypto.randomUUID();
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "bin";
-    const inputPath = path.join(inputDir, `${fileId}.${ext}`);
+    const inputPath = path.join(inputDir, `${fileId}.${upload.ext}`);
 
-    await Bun.write(inputPath, await file.arrayBuffer());
+    // Move assembled file into the job's input dir (same filesystem, no copy)
+    fs.renameSync(upload.assembledPath!, inputPath);
+    uploadStore.delete(upload.uploadId);
 
     fileJobs.push({
       id: fileId,
-      originalName: file.name,
-      size: file.size,
+      originalName: upload.filename,
+      size: fs.statSync(inputPath).size,
       status: "pending",
     });
   }
@@ -96,7 +108,6 @@ export async function createJob(req: Request): Promise<Response> {
     files: fileJobs.length,
   });
 
-  // Process asynchronously - don't await
   void processJob(job, inputDir, outputDir);
 
   const headers = new Headers({ "Content-Type": "application/json" });
@@ -155,7 +166,6 @@ async function processJob(
       await Promise.all(job.files.map(processor));
     }
   } catch (err) {
-    // Unexpected error outside individual file processors — mark whole job failed
     logger.error("job processing uncaught error", { jobId: job.id, err: String(err) });
     anyFailed = true;
   } finally {
