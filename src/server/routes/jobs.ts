@@ -151,9 +151,6 @@ export function downloadFile(jobId: string, fileId: string, req: Request): Respo
     return Response.json({ error: "File not ready" }, { status: 404 });
   }
 
-  fileJob.downloaded = true;
-  store.set(job);
-
   const filePath = path.join(JOBS_DIR, jobId, "output", `${fileId}.${job.targetFormat}`);
   const file = Bun.file(filePath);
   const stem = fileJob.originalName.replace(/\.[^/.]+$/, "");
@@ -180,9 +177,7 @@ export async function downloadAll(jobId: string, req: Request): Promise<Response
     const stem = fileJob.originalName.replace(/\.[^/.]+$/, "");
     const filePath = path.join(JOBS_DIR, jobId, "output", `${fileJob.id}.${job.targetFormat}`);
     entries[`${stem}.${job.targetFormat}`] = new Uint8Array(await Bun.file(filePath).arrayBuffer());
-    fileJob.downloaded = true;
   }
-  store.set(job);
 
   const zipped = zipSync(entries, { level: 6 });
 

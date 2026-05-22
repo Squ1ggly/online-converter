@@ -54,7 +54,7 @@ const HTML = `<!doctype html>
     <p>Online Converter is a free, unauthenticated file conversion tool that converts images and video between common formats using open-source software (ImageMagick and FFmpeg) running on the server.</p>
 
     <h2>3. File Storage &amp; Retention</h2>
-    <p>Uploaded files and converted outputs are stored temporarily on the server's local disk solely to facilitate your download. Files are automatically deleted within 30 minutes of upload, or within 2 minutes of all converted files being downloaded — whichever comes first. We do not back up, archive, or retain your files beyond this window.</p>
+    <p>Uploaded files and converted outputs are stored temporarily on the server's local disk solely to facilitate your download. Files are automatically deleted within 30 minutes of upload. We do not back up, archive, or retain your files beyond this window.</p>
     <p>Because this service is unauthenticated, any person who obtains a valid job URL could access the associated files during the retention window. Do not share job URLs with untrusted parties.</p>
 
     <h2>4. No Privacy Guarantee</h2>

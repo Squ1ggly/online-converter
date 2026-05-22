@@ -14,7 +14,6 @@ export interface FileJob {
   size: number;
   status: JobStatus;
   error?: string;
-  downloaded?: boolean;
 }
 
 export interface ConversionJob {
