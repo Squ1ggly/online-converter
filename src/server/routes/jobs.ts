@@ -1,6 +1,6 @@
 import path from "path";
 import fs from "fs";
-import { zipSync } from "fflate";
+import { Zip, ZipPassThrough } from "fflate";
 import type { ConversionJob, ConversionOptions, FileJob } from "../../shared/types";
 import { store } from "../services/store";
 import { assertFormat, convertImage, ensureJobDirs, JOBS_DIR } from "../services/magick";
@@ -244,19 +244,37 @@ export async function downloadAll(jobId: string, req: Request): Promise<Response
     return Response.json({ error: "No completed files" }, { status: 404 });
   }
 
-  const entries: Record<string, Uint8Array> = {};
+  logger.info("zip download started", { jobId, files: completed.length });
 
-  for (const fileJob of completed) {
-    const stem = fileJob.originalName.replace(/\.[^/.]+$/, "");
-    const filePath = path.join(JOBS_DIR, jobId, "output", `${fileJob.id}.${job.targetFormat}`);
-    entries[`${stem}.${job.targetFormat}`] = new Uint8Array(await Bun.file(filePath).arrayBuffer());
-  }
+  // Stream the zip one file at a time so we never hold all video data in memory at once.
+  // ZipPassThrough stores without compression — video files are already compressed and
+  // attempting deflate on them wastes CPU and RAM for near-zero size reduction.
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        const zip = new Zip((err, chunk, final) => {
+          if (err) { controller.error(err); return; }
+          controller.enqueue(chunk);
+          if (final) controller.close();
+        });
 
-  const zipped = zipSync(entries, { level: 6 });
+        for (const fileJob of completed) {
+          const stem = fileJob.originalName.replace(/\.[^/.]+$/, "");
+          const filePath = path.join(JOBS_DIR, jobId, "output", `${fileJob.id}.${job.targetFormat}`);
+          const entry = new ZipPassThrough(`${stem}.${job.targetFormat}`);
+          zip.add(entry);
+          entry.push(new Uint8Array(await Bun.file(filePath).arrayBuffer()), true);
+        }
 
-  logger.info("zip downloaded", { jobId, files: completed.length, bytes: zipped.byteLength });
+        zip.end();
+      } catch (err) {
+        logger.error("zip stream error", { jobId, err: String(err) });
+        controller.error(err);
+      }
+    },
+  });
 
-  return new Response(zipped, {
+  return new Response(stream, {
     headers: {
       "Content-Disposition": `attachment; filename="converted.zip"`,
       "Content-Type": "application/zip",
