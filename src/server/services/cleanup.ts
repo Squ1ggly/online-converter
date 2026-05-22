@@ -30,6 +30,37 @@ function tick() {
 }
 
 export function startCleanup(): void {
+  const resolved = path.resolve(JOBS_DIR);
+
+  // Refuse to wipe if running as root
+  if (process.getuid?.() === 0) {
+    logger.warn("startup purge skipped — refusing to run as root", { dir: resolved });
+    return;
+  }
+
+  // Ensure the path is a safe subdirectory of /tmp, not /tmp itself or anything outside
+  if (!resolved.startsWith("/tmp/") || resolved.length <= "/tmp/".length) {
+    logger.warn("startup purge skipped — JOBS_DIR looks unsafe", { dir: resolved });
+    return;
+  }
+
+  // Refuse to wipe if the path is a symlink (could point anywhere)
+  try {
+    const stat = fs.lstatSync(resolved);
+    if (stat.isSymbolicLink()) {
+      logger.warn("startup purge skipped — JOBS_DIR is a symlink", { dir: resolved });
+      return;
+    }
+  } catch {
+    // Directory doesn't exist yet — nothing to purge
+    return;
+  }
+
+  fs.rm(resolved, { recursive: true, force: true }, (err) => {
+    if (err) logger.warn("startup purge failed", { err: err.message });
+    else logger.info("startup purge done", { dir: resolved });
+  });
+
   logger.info("cleanup scheduler started", { intervalSec: 60, ttlMin: 30 });
   setInterval(tick, 60 * 1000);
 }
